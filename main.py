@@ -1,0 +1,180 @@
+import customtkinter as ctk
+from customtkinter import filedialog
+import os
+import shutil
+import subprocess
+import time
+import json
+
+from PIL import Image
+
+
+ctk.set_appearance_mode("System")
+ctk.set_default_color_theme("dark-blue")
+
+WIDTH = 1024
+HEIGHT = 750
+
+image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "images")
+
+
+class App(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+
+        self.window_setup()
+        self.load_image_setup()
+
+        # set grid layout 1x2
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+
+        # create navigation frame
+        self.navigation_frame = ctk.CTkFrame(self, corner_radius=0)
+        self.navigation_frame.grid(row=0, column=0, sticky="nsew")
+        self.navigation_frame.grid_rowconfigure(4, weight=1)
+        self.navigation_frame_label = ctk.CTkLabel(self.navigation_frame, text="  ANPR-KC", image=self.logo_image,
+                                                             compound="left", font=ctk.CTkFont(size=15, weight="bold"))
+        self.navigation_frame_label.grid(row=0, column=0, padx=20, pady=20)
+
+        # populate navigation frame
+        self.home_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Home",
+                                                   fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
+                                                   image=self.home_image, anchor="w", command=self.home_button_event)
+        self.home_button.grid(row=1, column=0, sticky="ew")
+        self.frame_2_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Frame 2",
+                                                      fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
+                                                      image=self.chat_image, anchor="w", command=self.frame_2_button_event)
+        self.frame_2_button.grid(row=2, column=0, sticky="ew")
+        self.appearance_mode_menu = ctk.CTkOptionMenu(self.navigation_frame, values=["System", "Light", "Dark"],
+                                                                command=self.change_appearance_mode_event)
+        self.appearance_mode_menu.grid(row=6, column=0, padx=20, pady=20, sticky="s")
+
+        # create home frame
+        self.home_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
+        self.home_frame.grid_columnconfigure(2, weight=1)
+        self.home_frame.grid_rowconfigure(3, weight=1)
+
+        self.home_frame_image_to_predict = ctk.CTkLabel(self.home_frame, text="", image=self.placeholder_predict_image)
+        self.home_frame_image_to_predict.grid(row=0, column=0, padx=20, pady=10, sticky='w')
+        self.home_frame_upload_image_button = ctk.CTkButton(self.home_frame, text="Upload Image", command=self.upload_image_button_event)
+        self.home_frame_upload_image_button.grid(row=1, column=0, padx=40, pady=10, sticky='w')
+        self.home_frame_detect_button = ctk.CTkButton(self.home_frame, text="Detect Number Plate", command=self.predict_plate_button_event)
+        self.home_frame_detect_button.grid(row=1, column=0, padx=40, pady=10, sticky='e')
+        self.home_frame_result_log = ctk.CTkTextbox(self.home_frame, width=600)
+        self.home_frame_result_log.grid(row=2, column=0, padx=20, pady=10, sticky='sw')
+        self.home_frame_result_log.insert("0.0", f"OpenALPR Demo...\n\n")
+
+        # create second frame
+        self.second_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
+
+        # select default frame
+        self.select_frame_by_name("home")
+
+
+    def upload_image_button_event(self):
+        
+        file_path = filedialog.askopenfilename(
+            initialdir="/",
+            title="Select an Image",
+            filetypes=[("Image files", ".png .jpg .jpeg")],
+        )
+        
+        filename = os.path.basename(file_path)
+        uploaded_path = os.path.join(self.image_path, os.path.join("uploads", filename))
+        shutil.copy(file_path, uploaded_path)
+        my_height = 400
+        img = Image.open(uploaded_path)
+        h_percent = (my_height/float(img.size[1]))
+        w_size = int((float(img.size[0])*float(h_percent)))      
+        if w_size > 600:
+            w_size = 600
+        new_image = ctk.CTkImage(img, size=(w_size, my_height))
+        self.home_frame_image_to_predict.configure(image=new_image)
+
+    def predict_plate_button_event(self):
+        alpr = "C:/openalpr_64/alpr.exe"
+        file_name = self.home_frame_image_to_predict.cget('image').cget('light_image').filename
+        
+        start_ocr_time = time.time()
+
+        process = subprocess.Popen(f"{alpr} -c eu -j {file_name}", stdout=subprocess.PIPE, shell=True)
+        (output, err) = process.communicate()
+
+        output_text = output.decode("utf-8")
+        
+        start_index = output_text.find('{')
+        json_text = output_text[start_index:]
+
+        try:
+            data = json.loads(json_text)
+            if 'results' in data and len(data['results']) > 0:
+                plate = data['results'][0]['plate']
+                confidence = data['results'][0]['confidence']
+                self.add_to_log(f"Plate: {plate} - Confidence: {confidence}")
+        
+            else:
+                self.home_frame_result_log.insert(ctk.END, f"No Results found.\n")
+                #print("No Results found.")
+                
+        except json.decoder.JSONDecodeError as e:
+            self.add_to_log(f"JSONDecodeError: {e}")
+            print("JSONDecodeError:", e)
+        
+        ocr_time = time.time() - start_ocr_time
+        self.add_to_log(f"alpr Elapsed Time: {ocr_time}\n")
+        #print(f"alpr Elapsed Time: {ocr_time}\n")
+
+    def select_frame_by_name(self, name):
+        # set button color for selected button
+        self.home_button.configure(fg_color=("gray75", "gray25") if name == "home" else "transparent")
+        self.frame_2_button.configure(fg_color=("gray75", "gray25") if name == "frame_2" else "transparent")
+        
+        # show selected frame
+        if name == "home":
+            self.home_frame.grid(row=0, column=1, sticky="nsew")
+        else:
+            self.home_frame.grid_forget()
+        if name == "frame_2":
+            self.second_frame.grid(row=0, column=1, sticky="nsew")
+        else:
+            self.second_frame.grid_forget()
+
+    def home_button_event(self):
+        self.select_frame_by_name("home")
+
+    def frame_2_button_event(self):
+        self.select_frame_by_name("frame_2")
+
+    def add_to_log(self, text):
+        #self.home_frame_result_log.configure(state='normal')
+        self.home_frame_result_log.insert(ctk.END, f"{text}\n")
+        #self.home_frame_result_log.configure(state='disabled')
+        self.home_frame_result_log.see("end")
+
+    def window_setup(self):
+        self.title("ALPRv01")
+        WIN_W = self.winfo_screenwidth()
+        WIN_H = self.winfo_screenheight()
+        pos_x = int(WIN_W/2 - WIDTH/2 + 50)
+        pos_y = int(WIN_H/2 - HEIGHT/2 - 25)
+        self.geometry(f"{WIDTH}x{HEIGHT}+{pos_x}+{pos_y}")
+
+    def change_appearance_mode_event(self, new_appearance_mode):
+        ctk.set_appearance_mode(new_appearance_mode)
+
+    def load_image_setup(self):
+        self.image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "images")
+        self.logo_image = ctk.CTkImage(Image.open(os.path.join(self.image_path, "logo.png")), size=(26, 26))
+        self.placeholder_predict_image = ctk.CTkImage(Image.open(os.path.join(self.image_path, "placeholder.jpg")), size=(400, 400))
+        self.image_icon_image = ctk.CTkImage(Image.open(os.path.join(self.image_path, "image_icon_light.png")), size=(20, 20))
+        self.home_image = ctk.CTkImage(light_image=Image.open(os.path.join(self.image_path, "home_dark.png")),
+                                                 dark_image=Image.open(os.path.join(self.image_path, "home_light.png")), size=(20, 20))
+        self.chat_image = ctk.CTkImage(light_image=Image.open(os.path.join(self.image_path, "chat_dark.png")),
+                                                 dark_image=Image.open(os.path.join(self.image_path, "chat_light.png")), size=(20, 20))
+        self.add_user_image = ctk.CTkImage(light_image=Image.open(os.path.join(self.image_path, "add_user_dark.png")),
+                                                     dark_image=Image.open(os.path.join(self.image_path, "add_user_light.png")), size=(20, 20))
+
+
+app = App()
+app.mainloop()
