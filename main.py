@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import time
 import json
-
+import cv2
 from PIL import Image
 
 
@@ -38,11 +38,11 @@ class App(ctk.CTk):
         self.navigation_frame_label.grid(row=0, column=0, padx=20, pady=20)
 
         # populate navigation frame
-        self.home_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Home",
+        self.home_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Image",
                                                    fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
                                                    image=self.home_image, anchor="w", command=self.home_button_event)
         self.home_button.grid(row=1, column=0, sticky="ew")
-        self.frame_2_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Frame 2",
+        self.frame_2_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Stream",
                                                       fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
                                                       image=self.chat_image, anchor="w", command=self.frame_2_button_event)
         self.frame_2_button.grid(row=2, column=0, sticky="ew")
@@ -67,10 +67,21 @@ class App(ctk.CTk):
 
         # create second frame
         self.second_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
+        self.second_frame.grid_columnconfigure(2, weight=1)
+        self.second_frame.grid_rowconfigure(3, weight=1)
 
+        self.second_frame_image_to_predict = ctk.CTkLabel(self.second_frame, text="", image=self.placeholder_predict_image)
+        self.second_frame_image_to_predict.grid(row=0, column=0, padx=20, pady=10, sticky='w')
+        self.second_frame_start_streaming_button = ctk.CTkButton(self.second_frame, text="Start Streaming", command=self.start_streaming_button_event)
+        self.second_frame_start_streaming_button.grid(row=1, column=0, padx=40, pady=10, sticky='w')
+        self.second_frame_detect_button = ctk.CTkButton(self.second_frame, text="Detect Number Plate", command=self.predict_plate_from_stream_button_event)
+        self.second_frame_detect_button.grid(row=1, column=0, padx=40, pady=10, sticky='e')
+        self.second_frame_result_log = ctk.CTkTextbox(self.second_frame, width=600)
+        self.second_frame_result_log.grid(row=2, column=0, padx=20, pady=10, sticky='sw')
+        self.second_frame_result_log.insert("0.0", f"OpenALPR Demo...\n\n")
+        
         # select default frame
         self.select_frame_by_name("home")
-
 
     def upload_image_button_event(self):
         
@@ -91,6 +102,43 @@ class App(ctk.CTk):
             w_size = 600
         new_image = ctk.CTkImage(img, size=(w_size, my_height))
         self.home_frame_image_to_predict.configure(image=new_image)
+
+    def start_streaming_button_event(self):
+        video_in = "./videos/night_test_2_short.mp4"
+        self.capture = cv2.VideoCapture(video_in)
+        self.camera_app()
+
+    def predict_plate_from_stream_button_event(self):
+        alpr = "C:/openalpr_64/alpr.exe"
+        file_name = self.second_frame_image_to_predict.cget('image').cget('light_image').filename
+        
+        start_ocr_time = time.time()
+
+        process = subprocess.Popen(f"{alpr} -c eu -j {file_name}", stdout=subprocess.PIPE, shell=True)
+        (output, err) = process.communicate()
+
+        output_text = output.decode("utf-8")
+        
+        start_index = output_text.find('{')
+        json_text = output_text[start_index:]
+
+        try:
+            data = json.loads(json_text)
+            if 'results' in data and len(data['results']) > 0:
+                plate = data['results'][0]['plate']
+                confidence = data['results'][0]['confidence']
+                self.add_to_log(f"Plate: {plate} - Confidence: {confidence}")
+        
+            else:
+                self.home_frame_result_log.insert(ctk.END, f"No Results found.\n")
+                #print("No Results found.")
+                
+        except json.decoder.JSONDecodeError as e:
+            self.add_to_log(f"JSONDecodeError: {e}")
+            print("JSONDecodeError:", e)
+        
+        ocr_time = time.time() - start_ocr_time
+        self.add_to_log(f"alpr Elapsed Time: {ocr_time}\n")
 
     def predict_plate_button_event(self):
         alpr = "C:/openalpr_64/alpr.exe"
@@ -152,6 +200,15 @@ class App(ctk.CTk):
         #self.home_frame_result_log.configure(state='disabled')
         self.home_frame_result_log.see("end")
 
+    def camera_app(self):
+        ret, img = self.capture.read()        
+        if ret:
+            cv2image= cv2.cvtColor(self.capture.read()[1], cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(cv2image)
+            image_wc = ctk.CTkImage(img, size=(640, 480))
+            self.second_frame_image_to_predict.configure(image=image_wc)
+        self.after(20, self.camera_app)
+
     def window_setup(self):
         self.title("ALPRv01")
         WIN_W = self.winfo_screenwidth()
@@ -176,5 +233,6 @@ class App(ctk.CTk):
                                                      dark_image=Image.open(os.path.join(self.image_path, "add_user_light.png")), size=(20, 20))
 
 
-app = App()
-app.mainloop()
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()
