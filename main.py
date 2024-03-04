@@ -1,10 +1,12 @@
 import customtkinter as ctk
 from customtkinter import filedialog
 import os
+import threading
 import shutil
 import subprocess
 import time
 import json
+import numpy as np
 import cv2
 from PIL import Image
 
@@ -70,12 +72,18 @@ class App(ctk.CTk):
         self.second_frame.grid_columnconfigure(2, weight=1)
         self.second_frame.grid_rowconfigure(3, weight=1)
 
-        self.second_frame_image_to_predict = ctk.CTkLabel(self.second_frame, text="", image=self.placeholder_predict_image)
+        self.second_frame_image_to_predict = ctk.CTkLabel(self.second_frame, text="", image=self.placeholder_video_image)
         self.second_frame_image_to_predict.grid(row=0, column=0, padx=20, pady=10, sticky='w')
+
         self.second_frame_start_streaming_button = ctk.CTkButton(self.second_frame, text="Start Streaming", command=self.start_streaming_button_event)
         self.second_frame_start_streaming_button.grid(row=1, column=0, padx=40, pady=10, sticky='w')
-        self.second_frame_detect_button = ctk.CTkButton(self.second_frame, text="Detect Number Plate", command=self.predict_plate_from_stream_button_event)
-        self.second_frame_detect_button.grid(row=1, column=0, padx=40, pady=10, sticky='e')
+
+        self.second_frame_stop_streaming_button = ctk.CTkButton(self.second_frame, text="Stop Streaming", command=self.stop_streaming_button_event)
+        self.second_frame_stop_streaming_button.grid(row=1, column=0, padx=40, pady=10, sticky='e')
+
+        self.second_frame_detect_button = ctk.CTkButton(self.second_frame, text="Detect Number Plate", command=lambda: threading.Thread(target=self.predict_plate_from_stream_button_event).start())                                                                                                 
+        self.second_frame_detect_button.grid(row=1, column=1, padx=10, pady=10, sticky='w')
+
         self.second_frame_result_log = ctk.CTkTextbox(self.second_frame, width=600)
         self.second_frame_result_log.grid(row=2, column=0, padx=20, pady=10, sticky='sw')
         self.second_frame_result_log.insert("0.0", f"OpenALPR Demo...\n\n")
@@ -105,16 +113,22 @@ class App(ctk.CTk):
 
     def start_streaming_button_event(self):
         video_in = "./videos/night_test_2_short.mp4"
-        self.capture = cv2.VideoCapture(video_in)
+        rtsp_url = 'rtsp://admin:Katma2023@192.168.178.133:554/h264Preview_01_main'
+        self.capture = cv2.VideoCapture(rtsp_url)
         self.camera_app()
+
+    def stop_streaming_button_event(self):
+        pass
 
     def predict_plate_from_stream_button_event(self):
         alpr = "C:/openalpr_64/alpr.exe"
-        file_name = self.second_frame_image_to_predict.cget('image').cget('light_image').filename
+        img = self.second_frame_image_to_predict.cget('image').cget('light_image')
+        img_np = np.array(img)
+        cv2.imwrite(os.path.join(self.image_path, "tmp_img.png"), img_np)
         
         start_ocr_time = time.time()
 
-        process = subprocess.Popen(f"{alpr} -c eu -j {file_name}", stdout=subprocess.PIPE, shell=True)
+        process = subprocess.Popen(f"{alpr} -c eu -j ./images/tmp_img.png", stdout=subprocess.PIPE, shell=True)
         (output, err) = process.communicate()
 
         output_text = output.decode("utf-8")
@@ -127,18 +141,18 @@ class App(ctk.CTk):
             if 'results' in data and len(data['results']) > 0:
                 plate = data['results'][0]['plate']
                 confidence = data['results'][0]['confidence']
-                self.add_to_log(f"Plate: {plate} - Confidence: {confidence}")
+                self.add_to_log_stream(f"Plate: {plate} - Confidence: {confidence}")
         
             else:
-                self.home_frame_result_log.insert(ctk.END, f"No Results found.\n")
+                self.second_frame_result_log.insert(ctk.END, f"No Results found.\n")
                 #print("No Results found.")
                 
         except json.decoder.JSONDecodeError as e:
-            self.add_to_log(f"JSONDecodeError: {e}")
+            self.add_to_log_stream(f"JSONDecodeError: {e}")
             print("JSONDecodeError:", e)
         
         ocr_time = time.time() - start_ocr_time
-        self.add_to_log(f"alpr Elapsed Time: {ocr_time}\n")
+        self.add_to_log_stream(f"alpr Elapsed Time: {ocr_time}\n")
 
     def predict_plate_button_event(self):
         alpr = "C:/openalpr_64/alpr.exe"
@@ -200,6 +214,12 @@ class App(ctk.CTk):
         #self.home_frame_result_log.configure(state='disabled')
         self.home_frame_result_log.see("end")
 
+    def add_to_log_stream(self, text):
+        #self.home_frame_result_log.configure(state='normal')
+        self.second_frame_result_log.insert(ctk.END, f"{text}\n")
+        #self.home_frame_result_log.configure(state='disabled')
+        self.second_frame_result_log.see("end")
+
     def camera_app(self):
         ret, img = self.capture.read()        
         if ret:
@@ -224,6 +244,7 @@ class App(ctk.CTk):
         self.image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "images")
         self.logo_image = ctk.CTkImage(Image.open(os.path.join(self.image_path, "logo.png")), size=(26, 26))
         self.placeholder_predict_image = ctk.CTkImage(Image.open(os.path.join(self.image_path, "placeholder.jpg")), size=(400, 400))
+        self.placeholder_video_image = ctk.CTkImage(Image.open(os.path.join(self.image_path, "cctv_temp.jpg")), size=(640, 480))
         self.image_icon_image = ctk.CTkImage(Image.open(os.path.join(self.image_path, "image_icon_light.png")), size=(20, 20))
         self.home_image = ctk.CTkImage(light_image=Image.open(os.path.join(self.image_path, "home_dark.png")),
                                                  dark_image=Image.open(os.path.join(self.image_path, "home_light.png")), size=(20, 20))

@@ -1,15 +1,32 @@
-import customtkinter as ctk
-from customtkinter import filedialog
-from PIL import Image
-import cv2
+# import customtkinter as ctk
+# from customtkinter import filedialog
+# from PIL import Image
+# import cv2
+from reolink_aio.api import Host
+import asyncio
 
 
-def camera_app(self):
-        ret, img = cap.read()
-        cv2image= cv2.cvtColor(cap.read()[1], cv2.COLOR_BGR2RGB)
-        img = Image.fromarray(cv2image)
-        #ImgTks = ImageTk.PhotoImage(image=img)
-        image_wc = ctk.CTkImage(img, size=(640, 480))
-        #self.camera.imgtk = ImgTks
-        self.camera.configure(image=image_wc)
-        self.after(20, self.camera_app)
+rtsp_url = 'rtsp://:@:/h264Preview_01_main'
+
+IP_ADDRESS = '192.168.1.152'
+PORT = 554
+USERNAME = 'admin'
+PASSWORD = 'Katma2023'
+
+
+async def print_mac_address():
+    # initialize the host
+    host = Host(IP_ADDRESS, PORT, USERNAME, PASSWORD)
+    # connect and obtain/cache device settings and capabilities
+    await host.get_host_data()
+    # check if it is a camera or an NVR
+    print("It is an NVR: %s, number of channels: %s", host.is_nvr, host.num_channels)
+    # print mac address
+    print(host.mac_address)
+    # close the device connection
+    await host.logout()
+
+if __name__ == "__main__":
+    asyncio.run(print_mac_address())
+                
+
